@@ -1,5 +1,17 @@
 `timescale 1ns / 1ps
 
+
+//Signal	Producer	Receiver	Meaning
+//araddr	CPU	          BRAM	  Address to read
+//arvalid	CPU	          BRAM	  CPU has a read request
+//arready	BRAM	       CPU	  BRAM accepts the address
+//rdata	     BRAM	       CPU	  Data read from memory
+//rvalid	BRAM	       CPU	  Read data is available
+//rready	CPU	          BRAM	  CPU is ready to receive data
+
+// Helpful guide for the AXI load suite
+
+
 module control_unit (
     input  wire         clk,
     input  wire         rst,
