@@ -93,6 +93,19 @@ module control_unit (
    
     logic [11:0] immS;
     assign immS = {curr_instruction[31:25], curr_instruction[11:7]};
+    
+    
+    // Branch slices
+    // Lowest  bit it always 0 for allignment
+    
+    logic [12:0]branchImm;
+    assign branchImm = {curr_instruction[31], 
+    curr_instruction[7], 
+    curr_instruction[30:25], 
+    curr_instruction[11:8], 1'b0};
+    // Yeah this is the complicated one with the bits all over the place. 
+    
+    
     // reg file declarations and assignment
     wire [4:0] rd_sel = rd;
     wire [4:0] rs_sel = rs1;
@@ -110,7 +123,7 @@ module control_unit (
     logic [9:0] control;
     wire [bitWidth-1:0] res;
     wire alu_error;  //new error wire
-
+    assign op1  = rs; // Always the case op2 is the one that varies
     
      wire isLoad;
 
@@ -121,7 +134,11 @@ module control_unit (
     assign isStore = (opCode == 7'b0100011);
     wire validOpCode;
 
-    assign op1  = rs;
+   
+    
+    wire isBranch;
+    assign isBranch = (opCode == 7'b1100011);
+    logic[1:0] BranchType; // Will tell us the type of branch
     
 
     assign validOpCode = // Sanity check make sure we get an opcode we can handle
@@ -130,7 +147,8 @@ module control_unit (
         (opCode == 7'b0010011) || // I-type 
         (opCode == 7'b0110111) ||   // LUI
         (opCode == 7'b0000011) || // Load
-        (opCode == 7'b0100011); // Store
+        (opCode == 7'b0100011) || // Store
+        (opCode == 7'b1100011); //Branch :o
 
     assign write = !rst && (rd != 5'd0) && !alu_error &&
                (
@@ -138,7 +156,7 @@ module control_unit (
                    (state == EXECUTE &&
                     validOpCode &&
                     curr_instruction != EBREAK &&
-                    !isLoad && !isStore)
+                    !isLoad && !isStore && !isBranch)
 
                    ||
 
@@ -194,7 +212,7 @@ module control_unit (
         op2     = 32'b0;
         control = 10'b0;
         d_in = res; // default d_in = res
-        
+        BranchType = 2'b00; // Default case just for assignment purposes.
         // Default values for the selected memory portions.
         selByte = 8'b0;
         selHalf = 16'b0;
@@ -273,7 +291,43 @@ module control_unit (
                   control = {3'b000, 7'h00};  // HardCode ALU add
                         
                     
-                 end    
+                 end  
+                 
+             7'b1100011: begin // Branch
+                d_in = 32'h00000000; // we will not be writing so set d_in to the 0 reg
+                op2 = rt; // we are actually using rs2 again
+                case (funct3) 
+                
+                 (3'h0): begin
+                  control = {3'h0, 7'h20}; // HardWire to subtraction 
+                                            //because we can use it to determine equal
+                    BranchType = 2'b00; // equal
+                 end
+                 
+                 (3'h1): begin
+                 
+                  control = {3'h0, 7'h20}; // HardWire to subtraction 
+                                          //because we can also use it to determine equal not equal
+                    BranchType = 2'b01;
+                 end
+                 
+                 (3'h4): begin // Less than 
+                    control = {3'h0, 7'h4}; // Special signal I made up for less than ALU op
+                    BranchType = 2'b10; //set branchType to less than
+                 end
+                 
+                 (3'h5): begin
+                 
+                    control = {3'h0, 7'h5}; // Special signal I made up for ge ALU op
+                    BranchType = 2'b11; //set branchType to greater than equal
+                 end
+                 
+                
+                
+                endcase
+             
+             
+             end  
            // removed the default case I had previously. Didn't need it. 
         endcase
     end
@@ -498,8 +552,75 @@ module control_unit (
                     
                end
                     
-                    
-                    else begin
+               
+                
+               else if (isBranch) begin
+               
+               // Default behavior: branch not taken
+               PC <= PC + 32'd4;
+                state <= READY;
+
+                if (alu_error) begin
+                    error <= 1'b1;
+                end
+                else begin
+               
+               case (BranchType)
+               
+               2'b00: begin //Branch Equals
+               
+               if(res == 0) begin // then ops are equal
+               
+               // Branch; 
+               PC <= PC + {{19{branchImm[12]}}, branchImm};
+              
+               end
+               
+               end
+               
+               2'b01: begin //Branch Not Equals
+               
+               if(res != 0) begin // then ops aren't equal
+               
+               // Branch; 
+               PC <= PC + {{19{branchImm[12]}}, branchImm};
+               
+               end
+               
+               end
+               
+               2'b10: begin //Branch less than
+               
+               if(res == 1) begin // then op1 < op2
+               
+               // Branch; 
+               PC <= PC + {{19{branchImm[12]}}, branchImm};
+               
+               
+               end
+               
+               end
+               
+               2'b11: begin //Branch greater than equal
+               
+               if(res == 1) begin // then op1 >= op2
+               
+               // Branch; 
+               PC <= PC + {{19{branchImm[12]}}, branchImm};
+             
+               
+               end
+               end
+               
+               default: begin
+                error <= 1'b1;
+                end
+               
+               
+               endcase
+               end 
+              end
+                else begin
                        // If we have an alu error or the instr isnt valid set error to high
 
                         if (!validOpCode || alu_error) begin
