@@ -195,8 +195,12 @@ module control_unit_tb;
         end
     endtask
     
-    
-    
+    // Add in check for CPU error
+    always @(negedge clk) begin
+    if (cpu_error)
+        $display("CPU ERROR: instruction = 0x%08h",
+                 myCUnit.curr_instruction);
+     end
     
     
     // Start of the test bench for reals
@@ -246,36 +250,64 @@ module control_unit_tb;
         wait (myCUnit.curr_instruction == 32'h00100073);
         @(negedge clk);
         
+        // Checks that determine if some of the branches failed. 
+        if (myCUnit.my_regs.registers[31] !== 32'd0)
+            $error("FAIL: At least one branch test failed");
+
+        if (myCUnit.my_regs.registers[6] !== 32'd0)
+            $error("FAIL: Loop counter should be zero"); // because we subtract from x6 until it equals 0
+
+        if (myCUnit.my_regs.registers[7] !== 32'd3)
+            $error("FAIL: Subtractive branch loop should execute three times");
+    
+        $display("Branch tests completed.");
+        
         $display(""); // SPacing
         $display("Register contents:");
         
 
 
-    // The program instructions
-    // addi x1, x0, 512       // x1 = 0x200
-    // addi x2, x0, 85        // x2 = 0x55
-    //sb   x2, 1(x1)         // Store byte 0x55 at address 0x201
-    //lw   x3, 0(x1)         // Print that out via loading to reg then print the reg
-    //addi x2, x0, 564       // x2 = 0x234
-    //sh   x2, 2(x1)        //  Store halfword 0x0234 at address 0x202
-    //lw   x4, 0(x1)        // Print that out via loading to reg then print the reg
-    // lui  x2, 0x12345      //  x2 = 0x12345000
-    //addi x2, x2, 0x678    // x2 = 0x12345678
-    //sw   x2, 0(x1)        // Store full word
-    //lw   x5, 0(x1)       //  Print that out via loading to reg then print the reg
-    //ebreak
-     
-     // I should note, I am using the same value that I had for loads 
-     // At address 0x200 I have the value 0x80A57F01
-     // Expected results are:
-      // x1	0x00000200	Base address
-       //x2	    0x12345678	Final store value
-        //x3	0x80A55501	sb changed only byte 01
-         //x4	0x02345501	sh changed only the upper halfword
-          //x5	0x12345678	sw replaced the full word 
-           // Hey this looks cool when I slant it
-           
-        // Now I need to implement like a write channel mux. 
+        //Register	Expected value	   What it is doing
+           //x1	          5	         First comparison operand
+           //x2	          5	              Equal to x1
+          //x3	          7	             X3 is Greater than x1
+          //x4	     0xFFFFFFFF	          Signed value -1
+          //x5	          1	           Positive comparison operand
+
+   
+   
+         //  beq x1, x2	(5 = 5)   	Taken
+         // bne x1, x2	(5 != 5)	Not taken
+         // bne x1, x3	(5 != 7)	Taken
+         // beq x1, x3	(5 = 7)	   Not taken
+        // blt x4, x5	(-1 < 1)	Taken (Also using signed value)
+        // blt x3, x1	(7 < 5)	   Not taken
+        // bge x4, x5	(-1 >= 1)	Not taken (Also uses signed)
+        //  bge x5, x4	(1 >= -1)	Taken (Also Uses Signed)
+        
+        // Then finally we test a loop!
+        
+        // addi x6, x0, 3
+        // addi x7, x0, 0
+        // loop:
+        // addi x7,x7, 1
+        // addi x6, x6, -1
+        // bne x6, x0, loop
+        
+        // finally ebreak
+        
+        
+        
+        // expected register values:
+        
+        // Reg x0: 0
+        // Reg x1: 5
+        // Reg x3: 7
+        // Reg x4: 0xffffffff
+        // Reg x5: 1
+        // Reg x6: 0 // because we subtract 1 from x6 every time we loop
+        // Reg x7: 3 // because we add one every time we loop (until x6 reaches 0)
+        // Reg x31: 0 // This means that no errors occurred (If not 0, errors in branching occured)
         
         for (int i = 0; i < 32; i = i + 1) // All regs
             $display("Register x%0d : 0x%08h", i, myCUnit.my_regs.registers[i]);
